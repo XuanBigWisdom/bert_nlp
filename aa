@@ -1,0 +1,46 @@
+import torch
+import torch.nn as nn
+from transformers import BertModel, BertTokenizer
+
+class BertWithLoRA(nn.Module):
+    def __init__(self, num_classes, r=8):  # r为低秩矩阵的秩
+        super(BertWithLoRA, self).__init__()
+        self.bert = BertModel.from_pretrained('bert-base-uncased')
+        self.num_classes = num_classes
+        hidden_size = self.bert.config.hidden_size
+
+        # 定义低秩矩阵
+        self.A = nn.Parameter(torch.randn(hidden_size, r))
+        self.B = nn.Parameter(torch.randn(r, hidden_size))
+        self.classifier = nn.Linear(hidden_size, num_classes)
+
+    def forward(self, input_ids, attention_mask, token_type_ids):
+        outputs = self.bert(input_ids, attention_mask, token_type_ids)
+        pooled_output = outputs[1]
+
+        # 应用低秩矩阵变换
+        low_rank_output = torch.matmul(pooled_output, self.A)
+        low_rank_output = torch.matmul(low_rank_output, self.B)
+
+        logits = self.classifier(low_rank_output)
+        return logits
+
+# 加载模型和分词器
+tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+model = BertWithLoRA(num_classes=2)  # 假设是二分类任务
+
+# 定义优化器和损失函数
+optimizer = torch.optim.Adam(model.parameters(), lr=2e-5)
+criterion = nn.CrossEntropyLoss()
+
+# 示例输入
+inputs = tokenizer("Example sentence", return_tensors='pt')
+labels = torch.tensor([1])  # 示例标签
+
+# 训练步骤
+model.train()
+optimizer.zero_grad()
+outputs = model(**inputs)
+loss = criterion(outputs, labels)
+loss.backward()
+optimizer.step()
